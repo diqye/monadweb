@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell,ConstraintKinds #-}
 module Control.Monad.Web where
-import Network.Wai.Handler.Warp(runEnv,Port)
+import Network.Wai.Handler.Warp(runEnv,run,Port)
 import Data.Text(Text,splitOn)
 import Control.Monad.State.Class
 import Control.Monad.State.Strict
@@ -266,3 +266,8 @@ runWebEnv :: Port -> WebT IO N.Response -> IO ()
 runWebEnv port web = do
     app <- web2application web
     runEnv port app 
+
+runWeb :: Port -> WebT IO N.Response -> IO ()
+runWeb port web = do
+    app <- web2application web
+    run port app 
