@@ -17,14 +17,15 @@ dependencies:
 
 ## Hello world
 ```Haskell
-import Control.Monad.Web
+import Control.Monad.WebAll
 main = runWebEnv 9999 $ respLBS "Hello world"
 ```
 `runWebEnv` will start a server listening port 9999 returning only "Hello world". Why end with Env? Because we first look for the environment variable PORT as the port, and only use 9999 if we cannot find it.
 
 ## Routing with zero learning cost
 ```Haskell
-iimport Data.Aeson
+import Control.Monad.WebAll
+import Data.Aeson
 import Text.Show.Pretty (pPrint)
 
 -- | auth all web
