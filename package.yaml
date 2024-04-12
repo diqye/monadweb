@@ -1,0 +1,90 @@
+name:                monadweb
+version:             0.1.0.0
+github:              "diqye/monadweb.git"
+license:             BSD3
+author:              "diqye"
+maintainer:          "diqye@forxmail"
+copyright:           "copyright"
+category:            "Web"
+synopsis:            "A Web framwork"
+
+extra-source-files:
+- README.md
+- ChangeLog.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description: A web framwork with a routing system implemented using `Warp` <https://github.com/diqye/monadweb#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+- warp
+- wai
+- transformers
+- http-types
+- bytestring
+- text
+- directory
+- filepath
+- wai-websockets
+- websockets
+- aeson
+- string-conversions
+- base64-bytestring
+- aeson
+- lens
+- mtl
+- lens-aeson
+- data-default-class
+
+ghc-options:
+- -Wall
+- -fno-warn-missing-signatures
+- -fno-warn-type-defaults
+- -fno-warn-name-shadowing
+- -fno-warn-orphans
+- -fno-warn-incomplete-uni-patterns
+- -fno-warn-unused-top-binds
+- -fno-warn-unused-imports
+- -XExtendedDefaultRules
+- -XOverloadedStrings
+- -XFlexibleContexts
+
+library:
+  source-dirs: src
+
+#
+executables:
+ main:
+   main:                Main.hs
+   source-dirs:         app
+   ghc-options:
+   - -threaded
+   - -rtsopts
+   - -with-rtsopts=-N
+   dependencies:
+   - monadweb
+   - pretty-show
+   - QuickCheck
+   - async
+   - process
+
+#
+tests:
+  monadweb-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - monadweb
+    - QuickCheck
+    - async
+    - process

@@ -1,0 +1,121 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.36.0.
+--
+-- see: https://github.com/sol/hpack
+
+name:           monadweb
+version:        0.1.0.0
+synopsis:       A Web framwork
+description:    A web framwork with a routing system implemented using `Warp` <https://github.com/diqye/monadweb#readme>
+category:       Web
+homepage:       https://github.com/diqye/monadweb.git#readme
+bug-reports:    https://github.com/diqye/monadweb.git/issues
+author:         diqye
+maintainer:     diqye@forxmail
+copyright:      copyright
+license:        BSD3
+build-type:     Simple
+extra-source-files:
+    README.md
+    ChangeLog.md
+
+source-repository head
+  type: git
+  location: https://github.com/diqye/monadweb.git
+
+library
+  exposed-modules:
+      Control.Monad.Web
+      Control.Monad.WebAll
+  other-modules:
+      Paths_monadweb
+  hs-source-dirs:
+      src
+  ghc-options: -Wall -fno-warn-missing-signatures -fno-warn-type-defaults -fno-warn-name-shadowing -fno-warn-orphans -fno-warn-incomplete-uni-patterns -fno-warn-unused-top-binds -fno-warn-unused-imports -XExtendedDefaultRules -XOverloadedStrings -XFlexibleContexts
+  build-depends:
+      aeson
+    , base >=4.7 && <5
+    , base64-bytestring
+    , bytestring
+    , data-default-class
+    , directory
+    , filepath
+    , http-types
+    , lens
+    , lens-aeson
+    , mtl
+    , string-conversions
+    , text
+    , transformers
+    , wai
+    , wai-websockets
+    , warp
+    , websockets
+  default-language: Haskell2010
+
+executable main
+  main-is: Main.hs
+  other-modules:
+      Paths_monadweb
+  hs-source-dirs:
+      app
+  ghc-options: -Wall -fno-warn-missing-signatures -fno-warn-type-defaults -fno-warn-name-shadowing -fno-warn-orphans -fno-warn-incomplete-uni-patterns -fno-warn-unused-top-binds -fno-warn-unused-imports -XExtendedDefaultRules -XOverloadedStrings -XFlexibleContexts -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      QuickCheck
+    , aeson
+    , async
+    , base >=4.7 && <5
+    , base64-bytestring
+    , bytestring
+    , data-default-class
+    , directory
+    , filepath
+    , http-types
+    , lens
+    , lens-aeson
+    , monadweb
+    , mtl
+    , pretty-show
+    , process
+    , string-conversions
+    , text
+    , transformers
+    , wai
+    , wai-websockets
+    , warp
+    , websockets
+  default-language: Haskell2010
+
+test-suite monadweb-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_monadweb
+  hs-source-dirs:
+      test
+  ghc-options: -Wall -fno-warn-missing-signatures -fno-warn-type-defaults -fno-warn-name-shadowing -fno-warn-orphans -fno-warn-incomplete-uni-patterns -fno-warn-unused-top-binds -fno-warn-unused-imports -XExtendedDefaultRules -XOverloadedStrings -XFlexibleContexts -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      QuickCheck
+    , aeson
+    , async
+    , base >=4.7 && <5
+    , base64-bytestring
+    , bytestring
+    , data-default-class
+    , directory
+    , filepath
+    , http-types
+    , lens
+    , lens-aeson
+    , monadweb
+    , mtl
+    , process
+    , string-conversions
+    , text
+    , transformers
+    , wai
+    , wai-websockets
+    , warp
+    , websockets
+  default-language: Haskell2010

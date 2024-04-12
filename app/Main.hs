@@ -1,31 +1,8 @@
-# monadweb
 
-A web framework inspired by MTL
-
-## Install
-stack.yaml
-```yaml
-extra-deps: 
-  - git: https://github.com/diqye/monadweb.git
-    commit: latest commit
-```
-package.yaml
-```yaml
-dependencies:
-- monadweb
-```
-
-## Hello world
-```Haskell
-import Control.Monad.Web
-main = runWebEnv 9999 $ respLBS "Hello world"
-```
-`runWebEnv` will start a server listening port 9999 returning only "Hello world". Why end with Env? Because we first look for the environment variable PORT as the port, and only use 9999 if we cannot find it.
-
-## Routing with zero learning cost
-```Haskell
-iimport Data.Aeson
+import Control.Monad.WebAll
+import Data.Aeson
 import Text.Show.Pretty (pPrint)
+
 
 -- | auth all web
 myAuthorization :: MonadWeb m => m Response
@@ -46,14 +23,6 @@ myHello :: MonadWeb m => m Response
 myHello =  do
     respLBS $ "my hello"
 
-main :: IO ()
-main = runWebEnv 9999 $ 
-    myAuthorization <|>
-    (meets "my/hello" >> useMethodGet >> myHello)
-```
-
-## Or using `msum`
-```Haskell
 myjsonbody :: (MonadWeb m, MonadIO m) => m Response
 myjsonbody = do
     a <- useBodyJSON
@@ -65,4 +34,3 @@ main = runWebEnv 9999 $ msum [
         meets "my/hello" >> useMethodGet >> myHello,
         meets "my/json/body" >> useMethodPost >> myjsonbody
     ]
-```
