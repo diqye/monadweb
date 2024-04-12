@@ -1,6 +1,6 @@
 # monadweb
 
-A web framework inspired by MTL
+A web framework inspired by `mtl` package
 
 ## Install
 stack.yaml
