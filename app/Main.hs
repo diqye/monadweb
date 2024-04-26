@@ -7,7 +7,7 @@ import Text.Show.Pretty (pPrint)
 -- | auth all web
 myAuthorization :: MonadWeb m => m Response
 myAuthorization = do
-    auth <- useRequestHeader hAuthorization
+    auth <- useRequestHeader hAuthorization <|> pure ""
     guard $ auth /= "my auth"
     -- set HTTP status  to response
     useStatus401
@@ -29,7 +29,7 @@ myjsonbody = do
     respJSON $ (a::(String,Int,String))
 
 main :: IO ()
-main = runWebEnv 9999 $ msum [
+main = runWebEnv $ msum [
         myAuthorization,
         meets "my/hello" >> useMethodGet >> myHello,
         meets "my/json/body" >> useMethodPost >> myjsonbody

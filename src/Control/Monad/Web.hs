@@ -1,8 +1,9 @@
-{-# LANGUAGE TemplateHaskell,ConstraintKinds #-}
+{-# LANGUAGE TemplateHaskell,ConstraintKinds,GeneralizedNewtypeDeriving #-}
 module Control.Monad.Web where
 import Network.Wai.Handler.Warp(runEnv,run,Port)
 import Data.Text(Text,splitOn)
 import Control.Monad.State.Class
+import Control.Monad.Trans(MonadTrans)
 import Control.Monad.State.Strict
 import Data.Default.Class
 import qualified Network.HTTP.Types.Header as N
@@ -45,7 +46,16 @@ instance Semigroup WebError where
 instance Monoid WebError where
     mempty = Error404
 
-type WebT m a = StateT WebState (ExceptT WebError m) a
+type MonadWebState = MonadState WebState
+type MonadWebError = MonadError WebError
+type MonadWeb m = (MonadWebState m, Alternative m,MonadWebError m)
+
+newtype WebT m a = WebT {
+    unWebT :: StateT WebState (ExceptT WebError m) a
+} deriving (Functor,Applicative,Monad,Alternative,MonadWebState, MonadWebError,MonadIO,MonadPlus)
+
+instance MonadTrans WebT where
+    lift = WebT . lift .lift
 
 makeLenses ''WebState
 
@@ -64,24 +74,19 @@ instance Default WebState where
         _stateStatus = N.status200
     }
 
-type MonadWebState = MonadState WebState
-type MonadWebError = MonadError WebError
-type MonadWeb m = (MonadWebState m, Alternative m,MonadWebError m)
 
-(-->) :: (A.KeyValue kv, A.ToJSON v) => A.Key -> v -> kv
-(-->) = (A..=)
+(<--) :: (A.KeyValue kv, A.ToJSON v) => A.Key -> v -> kv
+(<--) = (A..=)
 
 createError :: ToJSON a => a -> WebError
 createError message = Error500 $  object [
-        "success" --> False,
-        "message" --> toJSON message
+        "success" <-- False,
+        "message" <-- toJSON message
     ] 
 
 useRequest :: MonadWeb m => m N.Request
 useRequest = use request
 
--- lfn :: (s -> a) -> Lens' s a
-lfn fn = lens fn (\s _ -> s)
 
 m2e :: Maybe b -> Either WebError b
 m2e (Just b) = Right b
@@ -107,7 +112,7 @@ meeting = do
 -- | home route
 meetNull :: MonadWeb m => m ()
 meetNull = do
-    isNull <- use $ statePaths . lfn null
+    isNull <- use $ statePaths . to null
     guard isNull
 
 -- | consume a path if it eauals the path param
@@ -245,27 +250,30 @@ respFile filepath part = do
  -- | run
 runWebT :: Monad m => WebT m a -> WebState -> m (Either WebError (a,WebState))
 runWebT web webState = do
-    a <- runExceptT $ runStateT web webState
+    a <- runExceptT $ runStateT (unWebT  web) webState
     pure a
 
-
-web2application :: WebT IO N.Response -> IO N.Application
-web2application web = pure $ \ req respond -> do
+type TransIO  m = m (Either WebError (N.Response, WebState)) -> IO (Either WebError (N.Response, WebState))
+web2applicationT :: Monad m => WebT m N.Response -> TransIO m -> IO N.Application
+web2applicationT web trans = pure $ \ req respond -> do
     let webState = fromRequest req
     let jsutDo (Left (Error404)) = respond $ N.responseLBS N.status404 baseHeaders ""
         jsutDo (Left (Error500 value)) = do 
             let headers = ("Content-Type","application/json"):baseHeaders
             respond $ N.responseLBS N.status500 headers $ encode value
         jsutDo (Right (response,_)) = respond response
-    result <- runWebT web webState
+    result <- trans $ runWebT web webState
     jsutDo result 
 
+web2application :: WebT IO N.Response -> IO N.Application
+web2application web = web2applicationT web id 
+
 -- | Start a server on the port present in the PORT environment variable
---   Uses the Port given when the variable is unset
-runWebEnv :: Port -> WebT IO N.Response -> IO ()
-runWebEnv port web = do
+--   Uses the Port 9999 when the variable is unset
+runWebEnv ::  WebT IO N.Response -> IO ()
+runWebEnv web = do
     app <- web2application web
-    runEnv port app 
+    runEnv 9999 app 
 
 runWeb :: Port -> WebT IO N.Response -> IO ()
 runWeb port web = do
