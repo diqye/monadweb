@@ -46,7 +46,8 @@ instance Semigroup WebError where
 instance Monoid WebError where
     mempty = Error404
 
-type MonadWebState = MonadState WebState
+-- A better pattern is HasXXX
+type MonadWebState m = MonadState WebState
 type MonadWebError = MonadError WebError
 type MonadWeb m = (MonadWebState m, Alternative m,MonadWebError m)
 
