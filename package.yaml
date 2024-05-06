@@ -88,3 +88,5 @@ tests:
     - QuickCheck
     - async
     - process
+    - servant
+    - servant-server

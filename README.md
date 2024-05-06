@@ -48,12 +48,12 @@ myHello =  do
     respLBS $ "my hello"
 
 main :: IO ()
-main = runWebEnv 9999 $ 
+main = runWebEnv $ 
     myAuthorization <|>
     (meets "my/hello" >> useMethodGet >> myHello)
 ```
 
-## Or using `msum`
+### Or with `msum`
 ```Haskell
 myjsonbody :: (MonadWeb m, MonadIO m) => m Response
 myjsonbody = do
@@ -61,9 +61,33 @@ myjsonbody = do
     respJSON $ (a::(String,Int,String))
 
 main :: IO ()
-main = runWebEnv 9999 $ msum [
+main = runWebEnv $ msum [
         myAuthorization,
         meets "my/hello" >> useMethodGet >> myHello,
         meets "my/json/body" >> useMethodPost >> myjsonbody
     ]
 ```
+
+## Servant
+`servant` and `servant-server`
+```Haskell
+type UserAPI1 = "users" :> Get '[JSON] [(String,String)]
+users1 :: [(String,String)]
+users1 = [
+        ("1","2"),
+        ("1","2"),
+        ("3","2")
+    ]
+server1 :: Server UserAPI1
+server1 = return users1
+userAPI :: Proxy UserAPI1
+userAPI = Proxy
+app1 :: Application
+app1 = serve userAPI server1
+
+main :: IO ()
+main = runWebEnv $ msum [
+        meet "servant" >> respApp app1
+    ]
+```
+When visit `/servant/users`, it will respond with json `[["1","2"],["1","2"],["3","2"]]`

@@ -46,8 +46,10 @@ instance Semigroup WebError where
 instance Monoid WebError where
     mempty = Error404
 
--- A better pattern is HasXXX
-type MonadWebState m = MonadState WebState
+data WebResponse = WebResponse N.Response | WebApplication N.Application
+
+-- It is better using HasState pattern but ...
+type MonadWebState = MonadState WebState
 type MonadWebError = MonadError WebError
 type MonadWeb m = (MonadWebState m, Alternative m,MonadWebError m)
 
@@ -224,29 +226,36 @@ useStatus401 :: MonadWeb m => m ()
 useStatus401 = useStatus N.status401
 
 -- | resp
-respLBS :: MonadWeb m => L.ByteString ->  m N.Response
+respLBS :: MonadWeb m => L.ByteString ->  m WebResponse
 respLBS bs = do
     status <- use stateStatus
     headers <- use stateHeaders
-    pure $ N.responseLBS status headers bs
+    pure $ WebResponse $ N.responseLBS status headers bs
 
 
-respJSON :: (MonadWeb m, ToJSON a) => a ->  m N.Response
+respJSON :: (MonadWeb m, ToJSON a) => a ->  m WebResponse
 respJSON a = do
     useHeaderJSON
     respLBS $ encode a
 
-respStream :: MonadWeb m => N.StreamingBody -> m N.Response
+respStream :: MonadWeb m => N.StreamingBody -> m WebResponse
 respStream body = do
     status <- use stateStatus
     headers <- use stateHeaders
-    pure $ N.responseStream status headers body
+    pure $ WebResponse $ N.responseStream status headers body
 
-respFile :: MonadWeb m =>  FilePath -> Maybe N.FilePart -> m N.Response
+respApp :: MonadWeb m => N.Application -> m WebResponse
+respApp app = do
+    paths <- use statePaths
+    request  %= ( \ req -> req { N.pathInfo = paths }) 
+    pure $ WebApplication app
+
+
+respFile :: MonadWeb m =>  FilePath -> Maybe N.FilePart -> m WebResponse
 respFile filepath part = do
     status <- use stateStatus
     headers <- use stateHeaders
-    pure $ N.responseFile status headers filepath part
+    pure $ WebResponse $ N.responseFile status headers filepath part
 
  -- | run
 runWebT :: Monad m => WebT m a -> WebState -> m (Either WebError (a,WebState))
@@ -254,29 +263,30 @@ runWebT web webState = do
     a <- runExceptT $ runStateT (unWebT  web) webState
     pure a
 
-type TransIO  m = m (Either WebError (N.Response, WebState)) -> IO (Either WebError (N.Response, WebState))
-web2applicationT :: Monad m => WebT m N.Response -> TransIO m -> IO N.Application
+type TransIO  m = m (Either WebError (WebResponse, WebState)) -> IO (Either WebError (WebResponse, WebState))
+web2applicationT :: Monad m => WebT m WebResponse -> TransIO m -> IO N.Application
 web2applicationT web trans = pure $ \ req respond -> do
     let webState = fromRequest req
     let jsutDo (Left (Error404)) = respond $ N.responseLBS N.status404 baseHeaders ""
         jsutDo (Left (Error500 value)) = do 
             let headers = ("Content-Type","application/json"):baseHeaders
             respond $ N.responseLBS N.status500 headers $ encode value
-        jsutDo (Right (response,_)) = respond response
+        jsutDo (Right (WebResponse response,_)) = respond response
+        jsutDo (Right (WebApplication application,WebState {_request=req})) =  application req respond
     result <- trans $ runWebT web webState
     jsutDo result 
 
-web2application :: WebT IO N.Response -> IO N.Application
+web2application :: WebT IO WebResponse -> IO N.Application
 web2application web = web2applicationT web id 
 
 -- | Start a server on the port present in the PORT environment variable
 --   Uses the Port 9999 when the variable is unset
-runWebEnv ::  WebT IO N.Response -> IO ()
+runWebEnv ::  WebT IO WebResponse -> IO ()
 runWebEnv web = do
     app <- web2application web
     runEnv 9999 app 
 
-runWeb :: Port -> WebT IO N.Response -> IO ()
+runWeb :: Port -> WebT IO WebResponse -> IO ()
 runWeb port web = do
     app <- web2application web
     run port app 

@@ -111,6 +111,8 @@ test-suite monadweb-test
     , monadweb
     , mtl
     , process
+    , servant
+    , servant-server
     , string-conversions
     , text
     , transformers
