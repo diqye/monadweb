@@ -5,7 +5,7 @@ import Text.Show.Pretty (pPrint)
 
 
 -- | auth all web
-myAuthorization :: MonadWeb m => m Response
+myAuthorization :: MonadWeb m => m WebResponse
 myAuthorization = do
     auth <- useRequestHeader hAuthorization <|> pure ""
     guard $ auth /= "my auth"
@@ -19,11 +19,11 @@ myAuthorization = do
         ]
 
 -- | /my/hello Get only 
-myHello :: MonadWeb m => m Response
+myHello :: MonadWeb m => m WebResponse
 myHello =  do
     respLBS $ "my hello"
 
-myjsonbody :: (MonadWeb m, MonadIO m) => m Response
+myjsonbody :: (MonadWeb m, MonadIO m) => m WebResponse
 myjsonbody = do
     a <- useBodyJSON
     respJSON $ (a::(String,Int,String))
