@@ -24,7 +24,7 @@ import qualified Data.Aeson as A
 testreq = N.defaultRequest  { N.pathInfo = ["a","b","c"] }
 testweb = fromRequest testreq
 
-getA :: WebT Identity a -> Maybe a
+getA :: WebT WebState WebError Identity a -> Maybe a
 getA webt =  result where
     result = eitherA ^? _Right . _1
     eitherA = runIdentity $ runWebT webt testweb

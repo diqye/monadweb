@@ -48,23 +48,39 @@ instance Monoid WebError where
 
 data WebResponse = WebResponse N.Response | WebApplication N.Application
 
--- It is better using HasState pattern but ...
-type MonadWebState = MonadState WebState
-type MonadWebError = MonadError WebError
-type MonadWeb m = (MonadWebState m, Alternative m,MonadWebError m)
+class HasWebState s where
+    webStateLens :: Lens' s WebState
+    fromWebState :: WebState -> s
 
-newtype WebT m a = WebT {
-    unWebT :: StateT WebState (ExceptT WebError m) a
-} deriving (Functor,Applicative,Monad,Alternative,MonadWebState, MonadWebError,MonadIO,MonadPlus)
+class HasWebError e where 
+    getWebError :: e -> WebError
+    fromWebError :: WebError -> e
 
-instance MonadTrans WebT where
+instance HasWebError WebError where
+    getWebError e = e
+    fromWebError webError = webError
+
+instance HasWebState WebState where
+    webStateLens = id
+    fromWebState = id 
+
+type MonadWebState s m = (MonadState s m, HasWebState s)
+type MonadWebError e m = (MonadError e m, HasWebError e)
+type MonadWeb s e m = (MonadWebState s m, Alternative m,MonadWebError e m)
+
+
+newtype WebT s e m a = WebT {
+    unWebT :: StateT s (ExceptT e m) a
+} deriving (Functor,Applicative,Monad,Alternative,MonadState s, MonadError e,MonadIO,MonadPlus)
+
+instance MonadTrans (WebT s e) where
     lift = WebT . lift .lift
 
 makeLenses ''WebState
 
 -- | create Web from a request
-fromRequest :: N.Request -> WebState
-fromRequest req = def {
+fromRequest :: HasWebState s => N.Request -> s
+fromRequest req = fromWebState $ def {
     _request = req ,
     _statePaths = N.pathInfo req
 }
@@ -81,85 +97,84 @@ instance Default WebState where
 (<--) :: (A.KeyValue kv, A.ToJSON v) => A.Key -> v -> kv
 (<--) = (A..=)
 
-createError :: ToJSON a => a -> WebError
-createError message = Error500 $  object [
+createError ::  HasWebError e => ToJSON a => a -> e
+createError message = fromWebError $ Error500 $  object [
         "success" <-- False,
         "message" <-- toJSON message
     ] 
 
-useRequest :: MonadWeb m => m N.Request
-useRequest = use request
+useRequest :: MonadWebState s m => m N.Request
+useRequest = use $ webStateLens . request
 
-
-m2e :: Maybe b -> Either WebError b
+m2e :: (HasWebError e) => Maybe b -> Either e b
 m2e (Just b) = Right b
-m2e _ = Left Error404
+m2e _ = Left $ fromWebError Error404
 
-m2eWith :: Maybe b -> WebError -> Either WebError b
+m2eWith :: (HasWebError e) => Maybe b -> WebError -> Either e b
 m2eWith (Just b) _ = Right b
-m2eWith _ error = Left error
+m2eWith _ error = Left $ fromWebError error
 
-liftMaybe :: MonadWebError m => Maybe a -> m a
+liftMaybe :: MonadWebError e m => Maybe a -> m a
 liftMaybe mayb = liftEither $ m2e mayb
 
-liftMaybeWith :: MonadWebError m => WebError -> Maybe a -> m a
+liftMaybeWith :: MonadWebError e m => WebError -> Maybe a -> m a
 liftMaybeWith error mayb = liftEither $ m2eWith mayb error
 
 -- | consume a path and return it
-meeting :: MonadWeb m => m Text
+meeting :: MonadWeb s e m => m Text
 meeting = do
-    maybeH <- preuse $ statePaths . ix 0
+    maybeH <- preuse $ webStateLens . statePaths . ix 0
     h <- liftMaybe maybeH 
-    statePaths %= tail
+    webStateLens . statePaths %= tail
     pure h
 -- | home route
-meetNull :: MonadWeb m => m ()
+meetNull :: MonadWeb s e m => m ()
 meetNull = do
-    isNull <- use $ statePaths . to null
+    isNull <- use $ webStateLens . statePaths . to null
     guard isNull
 
 -- | consume a path if it eauals the path param
-meet :: MonadWeb m => Text -> m ()
+meet :: MonadWeb  s e m => Text -> m ()
 meet path = do
     path' <- meeting
     guard $ path == path'
 
 -- | consume mutiple path 
-meetMutiple :: MonadWeb m => [Text] -> m ()
+meetMutiple :: MonadWeb s e m => [Text] -> m ()
 meetMutiple paths = forM_ paths meet
 
 -- | meets "a/b/c" == meetList ["a","b","c"]
-meets :: MonadWeb m => Text -> m ()
+meets :: MonadWeb s e m => Text -> m ()
 meets pathText = meetMutiple $ splitOn "/" pathText
 
 -- | Like meet, but it's an exact match
-matches :: MonadWeb m => Text -> m ()
+matches :: MonadWeb s e m => Text -> m ()
 matches pathText = meets pathText >> meetNull
 -- | param
-useQuery :: MonadWeb m => m N.Query
+useQuery :: MonadWeb s e m => m N.Query
 useQuery = do
   req <- useRequest
   let query = N.queryString req
   pure query
 
-useQueryValue :: MonadWeb m => ByteString -> m ByteString
+useQueryValue :: MonadWeb s e m => ByteString -> m ByteString
 useQueryValue key = do
     query <- useQuery
     let error = createError $ (cs $ "The key \"" <> key <> "\" doesn't exist in querystring" :: Text)
     val <- liftMaybeWith error $ lookup key query
     pure $ maybe "" id val
 
-useBody :: (MonadWeb m,MonadIO m) => m L.ByteString
+useBody :: (MonadWeb s e m,MonadIO m) => m L.ByteString
 useBody = do
     req <- useRequest
     liftIO $ N.strictRequestBody req
 
-useBodyQuery :: (MonadWeb m,MonadIO m) => m N.Query
+useBodyQuery :: (MonadWeb s e m,MonadIO m) => m N.Query
 useBodyQuery = do
     body <- useBody
     pure $ N.parseQuery $ cs body
 
-useBodyQueryValue :: (MonadWeb m,MonadIO m) => ByteString -> m ByteString
+useBodyQueryValue :: (MonadWeb s e m,MonadIO m) => ByteString -> m ByteString
 useBodyQueryValue key = do
     bodyQ <- useBodyQuery
     let error = createError $ (cs $ "The key \"" <> key <> "\" doesn't exist in querystring of body" :: Text)
@@ -167,126 +182,137 @@ useBodyQueryValue key = do
     pure $ maybe "" id val
 
 
-useBodyJSON :: (MonadWeb m, MonadIO m,FromJSON a) => m a
+useBodyJSON :: (MonadWeb  s e m, MonadIO m,FromJSON a) => m a
 useBodyJSON = do
     body <- useBody
     let a = A.eitherDecode body
     liftEither $ either (Left . createError) Right a
 
 -- | methods
-useMethod :: MonadWeb m => N.Method -> m ()
+useMethod :: MonadWeb s e m => N.Method -> m ()
 useMethod method = do
   req <- useRequest
   let method' = N.requestMethod req
   guard $ method' == method
 
-useMethodGet :: MonadWeb m => m ()
+useMethodGet :: MonadWeb s e m => m ()
 useMethodGet = useMethod N.methodGet
 
-useMethodPost :: MonadWeb m => m ()
+useMethodPost :: MonadWeb s e m => m ()
 useMethodPost = useMethod N.methodPost
 
-useMethodPut :: MonadWeb m => m ()
+useMethodPut :: MonadWeb s e m => m ()
 useMethodPut = useMethod N.methodPut
 
-useMethodDelete :: MonadWeb m => m ()
+useMethodDelete :: MonadWeb s e m => m ()
 useMethodDelete = useMethod N.methodDelete
 
 -- | headers
-useRequestHeaders :: MonadWeb m => m N.RequestHeaders
+useRequestHeaders :: MonadWeb s e m => m N.RequestHeaders
 useRequestHeaders = do
     request <- useRequest
     pure $ N.requestHeaders request
 
-useRequestHeader :: MonadWeb m => N.HeaderName -> m ByteString
+useRequestHeader :: MonadWeb s e m => N.HeaderName -> m ByteString
 useRequestHeader key = do
     headers <- useRequestHeaders
     let val = lookup key headers
     liftMaybeWith (createError $ "The header name " <> show key <> " doesn't exist in this request") val
 
-useHeader :: MonadWeb m => N.HeaderName -> ByteString -> m ()
-useHeader name val = stateHeaders %= ((name,val):)
+useHeader :: MonadWeb s e m => N.HeaderName -> ByteString -> m ()
+useHeader name val = webStateLens . stateHeaders %= ((name,val):)
 
-useHeaderJSON :: MonadWeb m => m ()
+useHeaderJSON :: MonadWeb s e m => m ()
 useHeaderJSON = useHeader "Content-Type" "application/json"
 
-useHeaderHTML :: MonadWeb m => m ()
+useHeaderHTML :: MonadWeb s e m => m ()
 useHeaderHTML = useHeader  "Content-Type" "text/html; charset=utf-8"
 
 -- | status
-useStatus :: MonadWeb m => N.Status -> m ()
+useStatus :: MonadWeb s e m => N.Status -> m ()
 useStatus status = do
-    stateStatus .= status
+    webStateLens . stateStatus .= status
 
-useStatus200 :: MonadWeb m => m ()
+useStatus200 :: MonadWeb s e m => m ()
 useStatus200 = useStatus N.status200
-useStatus500 :: MonadWeb m => m ()
+useStatus500 :: MonadWeb s e m => m ()
 useStatus500 = useStatus N.status500
-useStatus401 :: MonadWeb m => m ()
+useStatus401 :: MonadWeb s e m => m ()
 useStatus401 = useStatus N.status401
 
 -- | resp
-respLBS :: MonadWeb m => L.ByteString ->  m WebResponse
+respLBS :: MonadWeb s e m => L.ByteString ->  m WebResponse
 respLBS bs = do
-    status <- use stateStatus
-    headers <- use stateHeaders
+    status <- use $ webStateLens . stateStatus
+    headers <- use $ webStateLens . stateHeaders
     pure $ WebResponse $ N.responseLBS status headers bs
 
 
-respJSON :: (MonadWeb m, ToJSON a) => a ->  m WebResponse
+respJSON :: (MonadWeb s e m, ToJSON a) => a ->  m WebResponse
 respJSON a = do
     useHeaderJSON
     respLBS $ encode a
 
-respStream :: MonadWeb m => N.StreamingBody -> m WebResponse
+respStream :: MonadWeb s e m => N.StreamingBody -> m WebResponse
 respStream body = do
-    status <- use stateStatus
-    headers <- use stateHeaders
+    status <- use $ webStateLens . stateStatus
+    headers <- use $ webStateLens . stateHeaders
     pure $ WebResponse $ N.responseStream status headers body
 
-respApp :: MonadWeb m => N.Application -> m WebResponse
+respApp :: MonadWeb s e m => N.Application -> m WebResponse
 respApp app = do
-    paths <- use statePaths
-    request  %= ( \ req -> req { N.pathInfo = paths }) 
+    paths <- use $ webStateLens . statePaths
+    webStateLens . request  %= ( \ req -> req { N.pathInfo = paths }) 
     pure $ WebApplication app
 
 
-respFile :: MonadWeb m =>  FilePath -> Maybe N.FilePart -> m WebResponse
+respFile :: MonadWeb s e m =>  FilePath -> Maybe N.FilePart -> m WebResponse
 respFile filepath part = do
-    status <- use stateStatus
-    headers <- use stateHeaders
+    status <- use $ webStateLens . stateStatus
+    headers <- use $ webStateLens . stateHeaders
     pure $ WebResponse $ N.responseFile status headers filepath part
 
  -- | run
-runWebT :: Monad m => WebT m a -> WebState -> m (Either WebError (a,WebState))
+runWebT :: (Monad m,HasWebState s,HasWebError e) => WebT s e m a -> s -> m (Either e (a,s))
 runWebT web webState = do
     a <- runExceptT $ runStateT (unWebT  web) webState
     pure a
 
-type TransIO  m = m (Either WebError (WebResponse, WebState)) -> IO (Either WebError (WebResponse, WebState))
-web2applicationT :: Monad m => WebT m WebResponse -> TransIO m -> IO N.Application
+type TransIO s e m = m (Either e (WebResponse, s)) -> IO (Either e (WebResponse, s))
+web2applicationT :: (Monad m,HasWebState s,HasWebError e) => WebT s e m WebResponse -> TransIO s e m -> IO N.Application
 web2applicationT web trans = pure $ \ req respond -> do
     let webState = fromRequest req
-    let jsutDo (Left (Error404)) = respond $ N.responseLBS N.status404 baseHeaders ""
-        jsutDo (Left (Error500 value)) = do 
-            let headers = ("Content-Type","application/json"):baseHeaders
-            respond $ N.responseLBS N.status500 headers $ encode value
+    let jsutDo (Left e ) = case getWebError e of 
+            Error404 -> respond $ N.responseLBS N.status404 baseHeaders ""
+            (Error500 value) -> do
+                let headers = ("Content-Type","application/json"):baseHeaders
+                respond $ N.responseLBS N.status500 headers $ encode value
         jsutDo (Right (WebResponse response,_)) = respond response
-        jsutDo (Right (WebApplication application,WebState {_request=req})) =  application req respond
+        jsutDo (Right (WebApplication application,state)) =  do
+            let req = state ^. webStateLens . request
+            application req respond
     result <- trans $ runWebT web webState
     jsutDo result 
 
-web2application :: WebT IO WebResponse -> IO N.Application
+web2application :: (HasWebState s,HasWebError e) => WebT s e IO WebResponse -> IO N.Application
 web2application web = web2applicationT web id 
 
 -- | Start a server on the port present in the PORT environment variable
 --   Uses the Port 9999 when the variable is unset
-runWebEnv ::  WebT IO WebResponse -> IO ()
-runWebEnv web = do
+runWebEnv' :: (HasWebState s,HasWebError e) => WebT s e IO WebResponse -> IO ()
+runWebEnv' web = do
     app <- web2application web
     runEnv 9999 app 
 
-runWeb :: Port -> WebT IO WebResponse -> IO ()
-runWeb port web = do
+runWeb' :: (HasWebState s,HasWebError e) => Port -> WebT s e IO WebResponse -> IO ()
+runWeb' port web = do
     app <- web2application web
     run port app 
+
+-- | Start a server on the port present in the PORT environment variable
+--   Uses the Port 9999 when the variable is unset
+runWeb :: Port -> WebT WebState WebError IO WebResponse -> IO ()
+runWeb = runWeb'
+
+runWebEnv :: WebT WebState WebError IO WebResponse -> IO ()
+runWebEnv = runWebEnv'
