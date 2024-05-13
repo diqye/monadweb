@@ -29,9 +29,9 @@ import Data.Aeson
 import Text.Show.Pretty (pPrint)
 
 -- | auth all web
-myAuthorization :: MonadWeb m => m Response
+myAuthorization :: MonadWeb s e m => m WebResponse
 myAuthorization = do
-    auth <- useRequestHeader hAuthorization
+    auth <- useRequestHeader hAuthorization <|> pure ""
     guard $ auth /= "my auth"
     -- set HTTP status  to response
     useStatus401
@@ -42,8 +42,9 @@ myAuthorization = do
             "message" .= "Authorization is required"
         ]
 
+
 -- | /my/hello Get only 
-myHello :: MonadWeb m => m Response
+myHello :: MonadWeb s e m => m Response
 myHello =  do
     respLBS $ "my hello"
 
@@ -55,7 +56,7 @@ main = runWebEnv $
 
 ### Or with `msum`
 ```Haskell
-myjsonbody :: (MonadWeb m, MonadIO m) => m Response
+myjsonbody :: (MonadWeb s e m, MonadIO m) => m Response
 myjsonbody = do
     a <- useBodyJSON
     respJSON $ (a::(String,Int,String))
