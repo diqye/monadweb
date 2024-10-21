@@ -12,7 +12,7 @@ import qualified Network.HTTP.Types as N
 import qualified Network.HTTP.Types.URI as N
 import qualified Network.Wai as N
 import Control.Lens
-import Control.Applicative((<|>),Alternative)
+import Control.Applicative((<|>),Alternative,empty)
 import Control.Monad(guard,forM_)
 import Control.Monad.Except
 import Data.ByteString(ByteString)
@@ -69,14 +69,26 @@ type MonadWebError e m = (MonadError e m, HasWebError e)
 type MonadWeb s e m = (MonadWebState s m, Alternative m,MonadWebError e m)
 
 
+makeLenses ''WebState
+
 newtype WebT s e m a = WebT {
-    unWebT :: StateT s (ExceptT e m) a
-} deriving (Functor,Applicative,Monad,Alternative,MonadState s, MonadError e,MonadIO,MonadPlus)
+    unWebT :: ExceptT e (StateT s m) a
+} deriving (Functor,Applicative,Monad,MonadState s, MonadError e,MonadIO)
+
+instance (Monad m, Monoid e, HasWebState s) => Alternative (WebT s e m) where 
+    empty = WebT { unWebT = empty }
+    webA <|> webB = do 
+        paths <- use $ webStateLens . statePaths
+        er <- catchError (Right <$> webA) (pure . Left)
+        case er of
+            Left _ -> (webStateLens . statePaths .= paths) >> webB
+            Right a ->  pure a
+
+instance (Monad m, Monoid e, HasWebState s) =>  MonadPlus (WebT s e m)
 
 instance MonadTrans (WebT s e) where
     lift = WebT . lift .lift
 
-makeLenses ''WebState
 
 -- | create Web from a request
 fromRequest :: HasWebState s => N.Request -> s
@@ -273,22 +285,22 @@ respFile filepath part = do
     pure $ WebResponse $ N.responseFile status headers filepath part
 
  -- | run
-runWebT :: (Monad m,HasWebState s,HasWebError e) => WebT s e m a -> s -> m (Either e (a,s))
+runWebT :: (Monad m,HasWebState s,HasWebError e) => WebT s e m a -> s -> m ((Either e a),s)
 runWebT web webState = do
-    a <- runExceptT $ runStateT (unWebT  web) webState
+    a <- flip runStateT webState $ runExceptT (unWebT  web) 
     pure a
 
-type TransIO s e m = m (Either e (WebResponse, s)) -> IO (Either e (WebResponse, s))
+type TransIO s e m = m (Either e WebResponse, s) -> IO (Either e WebResponse, s)
 web2applicationT :: (Monad m,HasWebState s,HasWebError e) => WebT s e m WebResponse -> TransIO s e m -> IO N.Application
 web2applicationT web trans = pure $ \ req respond -> do
     let webState = fromRequest req
-    let jsutDo (Left e ) = case getWebError e of 
+    let jsutDo ((Left e ),_) = case getWebError e of 
             Error404 -> respond $ N.responseLBS N.status404 baseHeaders ""
             (Error500 value) -> do
                 let headers = ("Content-Type","application/json"):baseHeaders
                 respond $ N.responseLBS N.status500 headers $ encode value
-        jsutDo (Right (WebResponse response,_)) = respond response
-        jsutDo (Right (WebApplication application,state)) =  do
+        jsutDo ((Right (WebResponse response)),_) = respond response
+        jsutDo ((Right (WebApplication application)),state) =  do
             let req = state ^. webStateLens . request
             application req respond
     result <- trans $ runWebT web webState

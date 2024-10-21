@@ -26,8 +26,8 @@ testweb = fromRequest testreq
 
 getA :: WebT WebState WebError Identity a -> Maybe a
 getA webt =  result where
-    result = eitherA ^? _Right . _1
-    eitherA = runIdentity $ runWebT webt testweb
+    result = a ^? _Right 
+    (a,_) = runIdentity $ runWebT webt testweb
 
 -- | props
 
@@ -67,14 +67,13 @@ ohmyheader = do
 port = 8765
 runServer = async $ runWeb port $ msum [
         meet "ok" >> respLBS "ok",
+        meet "a" >> meet "c" >> respLBS "c",
         meets "a/b/json" >> respJSON (1,2,3),
         meets "a/b" >> respJSON (4,6,6),
         matches "oh/my/god" >> useMethodGet >> ohmygod,
         matches "oh/my/header" >> ohmyheader,
         meet "servant" >> respApp app1
     ]
-
-
 
 
 reqUrl rest = "http://localhost:" <> show port <> rest
@@ -96,6 +95,10 @@ io_prop_json = do
 io_prop_json2 = do
     r <- reqContent $ reqUrl "/a/b"
     pure $ r == "[4,6,6]"
+io_prop_ac = do
+    r <- reqContent $ reqUrl "/a/c"
+    pure $ r == "c"
+
 io_prop_query_error = do
     r <- reqContent $ reqUrl "/oh/my/god"
     pure $ ":false"  `isInfixOf` r
@@ -142,5 +145,6 @@ main = do
     mycheck "io_prop_query" io_prop_query
     mycheck "io_prop_header" io_prop_header
     mycheck "io_prop_servant" io_prop_servant
+    mycheck "io_prop_ac" io_prop_ac
     cancel asyncId
     -- wait asyncId
